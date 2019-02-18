@@ -4,7 +4,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"runtime"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	dockerapi "github.com/fsouza/go-dockerclient"
 	"github.com/gliderlabs/pkg/usage"
 	"github.com/gliderlabs/registrator/bridge"
+	logging "github.com/hhkbp2/go-logging"
 )
 
 var Version string
@@ -31,6 +31,19 @@ var deregister = flag.String("deregister", "always", "Deregister exited services
 var retryAttempts = flag.Int("retry-attempts", 0, "Max retry attempts to establish a connection with the backend. Use -1 for infinite retries")
 var retryInterval = flag.Int("retry-interval", 2000, "Interval (in millisecond) between retry-attempts.")
 var cleanup = flag.Bool("cleanup", false, "Remove dangling services")
+var logger = setupLogger("main")
+
+func setupLogger(name string) logging.Logger {
+	logger := logging.GetLogger(name)
+	handler := logging.NewStdoutHandler()
+	format := "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+	dateFormat := "%Y-%m-%d %H:%M:%S"
+	formatter := logging.NewStandardFormatter(format, dateFormat)
+	handler.SetFormatter(formatter)
+	logger.SetLevel(logging.LevelInfo)
+	logger.AddHandler(handler)
+	return logger
+}
 
 func getopt(name, def string) string {
 	if env := os.Getenv(name); env != "" {
@@ -41,7 +54,7 @@ func getopt(name, def string) string {
 
 func assert(err error) {
 	if err != nil {
-		log.Fatal(err)
+		logger.Fatal(err)
 	}
 }
 
@@ -50,7 +63,7 @@ func main() {
 		versionChecker.PrintVersion()
 		os.Exit(0)
 	}
-	log.Printf("Starting registrator %s ...", Version)
+	logger.Infof("Starting registrator %s ...", Version)
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of %s:\n", os.Args[0])
@@ -73,7 +86,7 @@ func main() {
 	}
 
 	if *hostIp != "" {
-		log.Println("Forcing host IP to", *hostIp)
+		logger.Info("Forcing host IP to", *hostIp)
 	}
 
 	if (*refreshTtl == 0 && *refreshInterval > 0) || (*refreshTtl > 0 && *refreshInterval == 0) {
@@ -118,7 +131,7 @@ func main() {
 
 	attempt := 0
 	for *retryAttempts == -1 || attempt <= *retryAttempts {
-		log.Printf("Connecting to backend (%v/%v)", attempt, *retryAttempts)
+		logger.Infof("Connecting to backend (%v/%v)", attempt, *retryAttempts)
 
 		err = b.Ping()
 		if err == nil {
@@ -136,7 +149,7 @@ func main() {
 	// Start event listener before listing containers to avoid missing anything
 	events := make(chan *dockerapi.APIEvents)
 	assert(docker.AddEventListener(events))
-	log.Println("Listening for Docker events ...")
+	logger.Info("Listening for Docker events ...")
 
 	b.Sync(false)
 
@@ -185,5 +198,5 @@ func main() {
 	}
 
 	close(quit)
-	log.Fatal("Docker event loop closed") // todo: reconnect?
+	logger.Fatal("Docker event loop closed") // todo: reconnect?
 }

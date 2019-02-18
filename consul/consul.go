@@ -2,7 +2,6 @@ package consul
 
 import (
 	"fmt"
-	"log"
 	"net/url"
 	"os"
 	"strconv"
@@ -11,9 +10,12 @@ import (
 	"github.com/gliderlabs/registrator/bridge"
 	consulapi "github.com/hashicorp/consul/api"
 	"github.com/hashicorp/go-cleanhttp"
+	logging "github.com/hhkbp2/go-logging"
 )
 
 const DefaultInterval = "10s"
+
+var logger = setupLogger("consul")
 
 func init() {
 	f := new(Factory)
@@ -26,6 +28,18 @@ func (r *ConsulAdapter) interpolateService(script string, service *bridge.Servic
 	withIp := strings.Replace(script, "$SERVICE_IP", service.IP, -1)
 	withPort := strings.Replace(withIp, "$SERVICE_PORT", strconv.Itoa(service.Port), -1)
 	return withPort
+}
+
+func setupLogger(name string) logging.Logger {
+	logger := logging.GetLogger(name)
+	handler := logging.NewStdoutHandler()
+	format := "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+	dateFormat := "%Y-%m-%d %H:%M:%S"
+	formatter := logging.NewStandardFormatter(format, dateFormat)
+	handler.SetFormatter(formatter)
+	logger.SetLevel(logging.LevelInfo)
+	logger.AddHandler(handler)
+	return logger
 }
 
 type Factory struct{}
@@ -44,7 +58,7 @@ func (f *Factory) New(uri *url.URL) bridge.RegistryAdapter {
 		}
 		tlsConfig, err := consulapi.SetupTLSConfig(tlsConfigDesc)
 		if err != nil {
-			log.Fatal("Cannot set up Consul TLSConfig", err)
+			logger.Fatal("Cannot set up Consul TLSConfig", err)
 		}
 		config.Scheme = "https"
 		transport := cleanhttp.DefaultPooledTransport()
@@ -56,7 +70,7 @@ func (f *Factory) New(uri *url.URL) bridge.RegistryAdapter {
 	}
 	client, err := consulapi.NewClient(config)
 	if err != nil {
-		log.Fatal("consul: ", uri.Scheme)
+		logger.Fatal("consul: ", uri.Scheme)
 	}
 	return &ConsulAdapter{client: client}
 }
@@ -72,7 +86,7 @@ func (r *ConsulAdapter) Ping() error {
 	if err != nil {
 		return err
 	}
-	log.Println("consul: current leader ", leader)
+	logger.Info("consul: current leader ", leader)
 
 	return nil
 }
