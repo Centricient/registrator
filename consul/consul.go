@@ -52,8 +52,8 @@ func (f *Factory) New(uri *url.URL) bridge.RegistryAdapter {
 		tlsConfigDesc := &consulapi.TLSConfig{
 			Address:            uri.Host,
 			CAFile:             os.Getenv("CONSUL_CACERT"),
-			CertFile:           os.Getenv("CONSUL_TLSCERT"),
-			KeyFile:            os.Getenv("CONSUL_TLSKEY"),
+			CertFile:           os.Getenv("CONSUL_CLIENT_CERT"),
+			KeyFile:            os.Getenv("CONSUL_CLIENT_KEY"),
 			InsecureSkipVerify: false,
 		}
 		tlsConfig, err := consulapi.SetupTLSConfig(tlsConfigDesc)
@@ -63,7 +63,7 @@ func (f *Factory) New(uri *url.URL) bridge.RegistryAdapter {
 		config.Scheme = "https"
 		transport := cleanhttp.DefaultPooledTransport()
 		transport.TLSClientConfig = tlsConfig
-		config.HttpClient.Transport = transport
+		config.Transport = transport
 		config.Address = uri.Host
 	} else if uri.Host != "" {
 		config.Address = uri.Host
@@ -117,15 +117,21 @@ func (r *ConsulAdapter) buildCheck(service *bridge.Service) *consulapi.AgentServ
 		if timeout := service.Attrs["check_timeout"]; timeout != "" {
 			check.Timeout = timeout
 		}
+		if method := service.Attrs["check_http_method"]; method != "" {
+			check.Method = method
+		}
 	} else if path := service.Attrs["check_https"]; path != "" {
 		check.HTTP = fmt.Sprintf("https://%s:%s%s", service.IP, checkPort, path)
 		if timeout := service.Attrs["check_timeout"]; timeout != "" {
 			check.Timeout = timeout
 		}
+		if method := service.Attrs["check_https_method"]; method != "" {
+			check.Method = method
+		}
 	} else if cmd := service.Attrs["check_cmd"]; cmd != "" {
 		check.Args = []string{"check-cmd", service.Origin.ContainerID[:12], service.Origin.ExposedPort, cmd}
 	} else if script := service.Attrs["check_script"]; script != "" {
-		check.Args = strings.Split(r.interpolateService(script, service), " ")
+		check.Args = []string{r.interpolateService(script, service)}
 	} else if ttl := service.Attrs["check_ttl"]; ttl != "" {
 		check.TTL = ttl
 	} else if tcp := service.Attrs["check_tcp"]; tcp != "" {
@@ -133,10 +139,21 @@ func (r *ConsulAdapter) buildCheck(service *bridge.Service) *consulapi.AgentServ
 		if timeout := service.Attrs["check_timeout"]; timeout != "" {
 			check.Timeout = timeout
 		}
+	} else if grpc := service.Attrs["check_grpc"]; grpc != "" {
+		check.GRPC = fmt.Sprintf("%s:%d", service.IP, service.Port)
+		if timeout := service.Attrs["check_timeout"]; timeout != "" {
+			check.Timeout = timeout
+		}
+		if useTLS := service.Attrs["check_grpc_use_tls"]; useTLS != "" {
+			check.GRPCUseTLS = true
+			if tlsSkipVerify := service.Attrs["check_tls_skip_verify"]; tlsSkipVerify != "" {
+				check.TLSSkipVerify = true
+			}
+		}
 	} else {
 		return nil
 	}
-	if len(check.Args) > 0 || check.HTTP != "" || check.TCP != "" {
+	if len(check.Args) != 0 || check.HTTP != "" || check.TCP != "" || check.GRPC != "" {
 		if interval := service.Attrs["check_interval"]; interval != "" {
 			check.Interval = interval
 		} else {
